@@ -1,0 +1,240 @@
+<!DOCTYPE html>
+<html lang="pt-br">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Leituras</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700&display=swap" rel="stylesheet">
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
+  <style>
+    :root{
+      --bg:#0b1016; --card:#111827; --muted:#9ca3af; --text:#e5e7eb;
+      --accent:#2563eb; --accent-2:#10b981; --border:#1f2937;
+    }
+    *{box-sizing:border-box}
+    html,body{height:100%}
+    body{
+      margin:0;font-family:Inter,system-ui,Segoe UI,Roboto,Helvetica,Arial;
+      background:linear-gradient(180deg,#0b1016 0%, #0e1420 100%);
+      color:var(--text);-webkit-font-smoothing:antialiased;
+    }
+    .container{max-width:1100px;margin:32px auto;padding:0 16px}
+    .header{display:flex;align-items:center;justify-content:space-between;margin-bottom:16px}
+    .title{font-weight:700;letter-spacing:.2px}
+    .card{background:var(--card);border:1px solid var(--border);border-radius:16px;box-shadow:0 10px 30px rgba(0,0,0,.25)}
+    .chart-card{padding:18px}
+    .toolbar{display:flex;gap:12px;flex-wrap:wrap;margin:8px 0 0}
+    .btn{appearance:none;border:1px solid var(--border);background:#0f172a;color:var(--text);
+         padding:10px 14px;border-radius:10px;font-weight:600;cursor:pointer}
+    .btn:hover{border-color:#334155}
+    .input{background:#0f172a;border:1px solid var(--border);color:var(--text);padding:10px 12px;border-radius:10px;min-width:220px}
+
+    .table-card{margin-top:18px}
+    .table-wrap{overflow:auto;border-radius:16px;border:1px solid var(--border)}
+    table{width:100%;border-collapse:collapse;background:#0b1220}
+    thead th{position:sticky;top:0;background:#0f1628;border-bottom:1px solid var(--border);text-align:left;padding:12px;font-size:14px}
+    tbody td{border-top:1px solid var(--border);padding:12px;font-size:14px}
+    tbody tr:hover{background:#0e1627}
+    .tag{display:inline-flex;align-items:center;gap:6px;font-size:12px;padding:4px 8px;border-radius:999px;border:1px solid var(--border);background:#0f172a}
+    .foot{margin-top:14px;color:var(--muted);font-size:12px;text-align:right}
+    .highlight{outline:2px solid var(--accent);background:rgba(37,99,235,.1)}
+    .muted{color:var(--muted);font-size:12px}
+    .chart-wrap{height:260px; position:relative}
+#chart{width:100% !important; height:100% !important}
+
+  </style>
+</head>
+<body>
+  <div class="container">
+    <div class="header">
+      <h1 class="title">Salinidade</h1>
+      <div class="toolbar">
+        <span id="info" class="muted"></span>
+      </div>
+    </div>
+
+    <!-- CARTÃO DO GRÁFICO (12 últimas leituras) -->
+    <div class="card chart-card">
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px">
+        <strong>Últimas 12 leituras</strong>
+        <span id="seriesInfo" class="tag">0 pontos</span>
+      </div>
+        <div class="chart-wrap">
+        <canvas id="chart"></canvas>
+        </div>
+      <div id="chartEmpty" class="muted" style="margin-top:8px" hidden>Sem dados para exibir.</div>
+    </div>
+
+    <!-- CARTÃO DA TABELA (todas as leituras) -->
+    <div class="card table-card">
+      <div style="display:flex;justify-content:space-between;align-items:center;padding:12px 14px;border-bottom:1px solid var(--border)">
+        <strong>Todas as leituras</strong>
+        <span id="count" class="tag">0</span>
+      </div>
+      <div class="table-wrap">
+        <table id="dataTable" aria-label="Tabela de dados">
+          <thead>
+            <tr>
+              <th>Data/Hora</th>
+              <th>Tipo</th>
+              <th>Valor</th>
+              <th>Sensor</th>
+              <th>ID</th>
+            </tr>
+          </thead>
+          <tbody></tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+
+{{ leituras|json_script:"leituras-data" }}
+<script>
+  window.LEITURAS = JSON.parse(document.getElementById("leituras-data").textContent);
+</script>
+
+
+  <script>
+    // Mapeia códigos -> rótulos humanos (alinha com TextChoices do model)
+    const TIPO_LABEL = {
+      SALI: 'Salinidade',
+
+      OUTR: 'Outro'
+    };
+
+    // NÃO usa API GET: apenas dados injetados via window.LEITURAS.
+    function loadLeituras() {
+      if (Array.isArray(window.LEITURAS)) return window.LEITURAS;
+      const infoEl = document.getElementById('info');
+      infoEl.textContent = 'Sem dados injetados. Defina window.LEITURAS no template.';
+      return [];
+    }
+
+    function normaliza(raw) {
+      // Espera itens com: id, sensor_id (ou sensor), tipo, valor, data_hora
+      return raw.filter(Boolean).map((it) => ({
+        id: it.id,
+        sensor: it.sensor_id ?? it.sensor ?? null,
+        tipo: it.tipo,
+        valor: Number(it.valor),
+        data_hora: it.data_hora
+      })).filter(it => !Number.isNaN(it.valor) && it.data_hora);
+    }
+
+    function renderTable(rowsDesc) {
+      const tbody = document.querySelector('#dataTable tbody');
+      const fmt = new Intl.DateTimeFormat('pt-BR', { dateStyle: 'short', timeStyle: 'medium' });
+      tbody.innerHTML = rowsDesc.map(r => {
+        const sensorDisplay = (r && typeof r.sensor === 'object') ? (r.sensor.nome ?? r.sensor.id ?? '') : (r.sensor ?? '');
+        return `
+        <tr data-id="${r.id}">
+          <td>${fmt.format(new Date(r.data_hora))}</td>
+          <td>${TIPO_LABEL[r.tipo] || r.tipo || ''}</td>
+          <td>${r.valor.toLocaleString('pt-BR')} </td>
+          <td>${sensorDisplay}</td>
+          <td>${r.id ?? ''}</td>
+        </tr>`;
+      }).join('');
+      document.getElementById('count').textContent = `${rowsDesc.length} registro${rowsDesc.length===1?'':'s'}`;
+    }
+
+ function buildChart(ctx, labels, values) {
+    return new Chart(ctx, {
+      type: 'line',
+      data: {
+        labels,
+        datasets: [{
+          label: 'Valor',
+          data: values,
+          borderWidth: 2,
+          tension: 0.3,
+          pointRadius: 3,
+          // 🔹 cores visíveis no tema escuro
+          borderColor: '#2563eb',
+          backgroundColor: 'rgba(37,99,235,0.12)',
+          fill: true
+        }]
+      },
+      options: {
+        maintainAspectRatio: false,
+        scales: {
+          x: {
+            ticks: { color: '#9ca3af' },
+            grid: { color: 'rgba(156,163,175,0.15)' }
+          },
+          y: {
+            beginAtZero: false,
+            ticks: { color: '#9ca3af' },
+            grid: { color: 'rgba(156,163,175,0.15)' }
+          }
+        },
+        plugins: {
+          legend: { labels: { color: '#e5e7eb' } },
+          tooltip: {
+            callbacks: {
+              label: (ctx) => `Valor: ${ctx.parsed.y}`
+            }
+          }
+        }
+      }
+    });
+  }
+    function bootstrap() {
+      const raw = loadLeituras();
+      const norm = normaliza(raw);
+
+      // Ordena por data/hora ASC para montar gráfico cronológico
+      const asc = norm.slice().sort((a,b) => new Date(a.data_hora) - new Date(b.data_hora));
+      const last12 = asc.slice(-12);
+
+      // Tabela: todos em ordem DESC (mais recentes primeiro)
+      const desc = norm.slice().sort((a,b) => new Date(b.data_hora) - new Date(a.data_hora));
+      renderTable(desc);
+
+      // Gráfico: últimas 12 (ASC)
+      const labels = last12.map(r => new Date(r.data_hora).toLocaleString('pt-BR'));
+      const values = last12.map(r => r.valor);
+      document.getElementById('seriesInfo').textContent = `${values.length} ponto${values.length===1?'':'s'}`;
+
+      const c = document.getElementById('chart');
+      if (!values.length) {
+        document.getElementById('chartEmpty').hidden = false;
+      } else {
+        document.getElementById('chartEmpty').hidden = true;
+        const chart = buildChart(c, labels, values);
+
+        // Clique no ponto -> destaca linha correspondente na tabela (via ID)
+        c.onclick = (evt) => {
+          const points = chart.getElementsAtEventForMode(evt, 'nearest', { intersect: true }, true);
+          if (!points.length) return;
+          const idx = points[0].index; // índice em last12
+          const leituraId = last12[idx]?.id;
+          if (!leituraId) return;
+          const tbody = document.querySelector('#dataTable tbody');
+          tbody.querySelectorAll('tr').forEach(tr => tr.classList.remove('highlight'));
+          const tr = tbody.querySelector(`tr[data-id="${leituraId}"]`);
+          if (tr) {
+            tr.classList.add('highlight');
+            tr.scrollIntoView({ behavior: 'smooth', block: 'center' });
+          }
+        };
+      }
+
+      // Info topo
+      const info = document.getElementById('info');
+      if (norm.length) {
+        const first = asc[0];
+        const last = asc[asc.length - 1];
+        const fmt = new Intl.DateTimeFormat('pt-BR', { dateStyle: 'short', timeStyle: 'short' });
+        info.textContent = `Período: ${fmt.format(new Date(first.data_hora))} → ${fmt.format(new Date(last.data_hora))}`;
+      } else {
+        info.textContent = 'Sem leituras';
+      }
+    }
+
+    bootstrap();
+  </script>
+</body>
+</html>
