@@ -8,9 +8,9 @@
 // CONFIGURAÇÕES
 // -----------------------------
 #define TDS_PIN             ADC2_CHANNEL_0   // GPIO4 = ADC2_CH0
-#define DEFAULT_VREF        1100             // Valor médio do Vref interno (mV)
-#define SAMPLES             64               // Número de amostras para média
-#define TEMP_C              25.0             // Temperatura padrão se não houver sensor (°C)
+#define DEFAULT_VREF        1100             // Vref típico do ESP32 (em mV)
+#define SAMPLES             64               // Média de 64 leituras
+#define TEMP_C              25.0             // Temperatura (°C) de referência
 
 // -----------------------------
 // FUNÇÃO PRINCIPAL
@@ -19,8 +19,8 @@ void app_main(void)
 {
     esp_adc_cal_characteristics_t adc_chars;
 
-    // Configura ADC2 canal 0 (GPIO4)
-    adc2_config_channel_atten(TDS_PIN, ADC_ATTEN_DB_11); // até ~3.3V
+    // Configuração do ADC para faixa até 3,3 V (ideal com alimentação 5 V)
+    adc2_config_channel_atten(TDS_PIN, ADC_ATTEN_DB_11);
     esp_adc_cal_characterize(ADC_UNIT_2, ADC_ATTEN_DB_11, ADC_WIDTH_BIT_12,
                              DEFAULT_VREF, &adc_chars);
 
@@ -28,7 +28,7 @@ void app_main(void)
     {
         uint32_t adc_reading = 0;
 
-        // Média de múltiplas amostras para estabilidade
+        // Média para reduzir ruído
         for (int i = 0; i < SAMPLES; i++) {
             int raw;
             if (adc2_get_raw(TDS_PIN, ADC_WIDTH_BIT_12, &raw) == ESP_OK) {
@@ -44,24 +44,21 @@ void app_main(void)
         // -----------------------------
         // Compensação de temperatura
         // -----------------------------
-        // Fórmula de compensação (25°C é referência)
-        // TempCoef = 1 + 0.02*(Temp - 25)
+        // TempCoef = 1 + 0.02 * (Temp - 25)
         float tempCoef = 1.0 + 0.02 * (TEMP_C - 25.0);
-
-        // Corrige tensão medida conforme temperatura
         float voltage_comp = voltage_v / tempCoef;
 
         // -----------------------------
         // Conversão para TDS (ppm)
-        // Fórmula da DFRobot, ajustada
+        // Fórmula baseada em DFRobot (ajustada)
         // -----------------------------
         float tds_value = (133.42 * voltage_comp * voltage_comp * voltage_comp
                         - 255.86 * voltage_comp * voltage_comp
                         + 857.39 * voltage_comp) * 0.5;
 
-        printf("ADC: %lu | %lu mV | %.2f V | TDS: %.2f ppm (T=%.1f°C)\n",
+        printf("ADC: %lu | %lu mV | %.3f V | TDS: %.2f ppm (T=%.1f °C)\n",
                adc_reading, voltage, voltage_v, tds_value, TEMP_C);
 
-        vTaskDelay(pdMS_TO_TICKS(1000)); // atualiza a cada 1s
+        vTaskDelay(pdMS_TO_TICKS(1000)); // atualiza a cada 1 s
     }
 }
