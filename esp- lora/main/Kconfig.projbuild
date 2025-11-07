@@ -1,0 +1,20 @@
+menu "Project Configuration"
+
+choice
+    prompt "Device Role"
+    default LORA_ROLE_RECEIVER
+config LORA_ROLE_SENDER
+    bool "Sender (Transmitter)"
+config LORA_ROLE_RECEIVER
+    bool "Receiver"
+endchoice
+
+config SENDER
+    bool
+    default y if LORA_ROLE_SENDER
+
+config RECEIVER
+    bool
+    default y if LORA_ROLE_RECEIVER
+
+endmenu
